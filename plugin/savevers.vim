@@ -1,14 +1,18 @@
 " -*- vim -*-
-" @(#) $Id: savevers.vim,v 0.5 2001/10/01 11:05:12 eralston Exp $
+" @(#) $Id: savevers.vim,v 0.7 2001/10/02 13:55:22 eralston Exp $
 "
 " Vim global plugin for saving multiple 'patchmode' versions
-" Last Change: 2001/10/01 11:05:12
+" Last Change: 2001/10/02 13:55:22
 " Maintainer: Ed Ralston <eralston@techsan.org>
+"
 "
 " created 2001-09-20 13:05:40 eralston@techsan.org
 "
+" Copyright 2001 Ed Ralston
+" Free distribution, use, and modification permitted under GPL2.
+"
 " DESCRIPTION:
-"    Automatically saves multiple, sequentially numbered
+"    Automatically saves and compares multiple, sequentially numbered
 "    old revisions of files (like in VMS)
 "    
 "    If the 'patchmode' option is non-empty, then whenever a file
@@ -19,6 +23,7 @@
 "        {patchext} is the value of the 'patchmode' option.
 "    
 "    Note that this plugin is DISABLED if 'patchmode' is empty.
+"    Also, this plugin won't work if 'backupdir' is empty.
 "    
 "    So, for example, if 'patchmode' is '.clean' and we save a
 "    file named "test.txt" we'll have the following files:
@@ -52,7 +57,7 @@
 "       Use ":Purge -a 0" to delete all of the patchmode files in
 "       the directory of the current file.
 "
-"    :VersDiff [arg]
+"    :VersDiff [-t] [arg]
 "       Does a "diffsplit" on the current file with the version
 "       indicated by [arg].  So, for example, if the current
 "       file is "test.txt" then the ":VersDiff 5" command will
@@ -68,10 +73,17 @@
 "       is diffed will be (23-5+1)=19, i.e, "test.txt.0019" will
 "       be diffed.
 "
+"       If [arg] is "-", then the current VersDiff window is decremented.
+"       If [arg] is "+", then the current VersDiff window is incremented.
+"
 "       If [arg] is "-cvs", then the diff is done with the most recently
 "       checked-in version of the file.
 "
 "       If [arg] is "-c", then any current VersDiff window is closed.
+"
+"       If the optional [-t] (toggle) flag is given, then if there
+"       is currently a VersDiff window, then it is closed.  Otherwise,
+"       the indicated VersDiff window is created.
 "
 " CONFIGURATION:
 "    This plugin can be configured by setting the following
@@ -88,7 +100,18 @@
 "    savevers_purge     - Sets default value of [N] for the :Purge command
 "                         Defaults to "1".
 "
+"    savevers_dirs      - This is a comma-separated list of directories
+"                         that will be tried to store the patchmode files.
+"                         The first writable directory in this list is used.
+"                         This works much like the vim 'backupdir' option.
+"                         To set this to the same as 'backupdir', do
+"                            :let savevers_dirs = &backupdir
+"                         Defaults to '.', which puts all patchmode files
+"                         in the same directory as the original file.
+"
 "    versdiff_no_resize - Disables window resizing during ":VersDiff"
+"
+"    versdiff_max_cols  - Limits window resizing during ":VersDiff"
 "
 "    So, for example, if the user has in ~/.vimrc:
 "       let savevers_types = "*.c,*.h,*.vim"
@@ -113,6 +136,9 @@
 " -----------------------------------------------------------
 "
 " $Log: savevers.vim,v $
+" Revision 0.7 2001/10/02 13:55:22  eralston
+" Added 'savevers_dirs' option to specify directory for patchmode files
+"
 " Revision 0.6 2001/10/01 11:05:12  eralston
 " ":VersDiff" command improvements
 "
@@ -177,8 +203,17 @@ let s:zeroes = strpart("000000000000000000000000",0,s:ver_len)
 let s:ver_subst = "^.*\\(\\d\\{" . s:ver_len . "}\\)$"
 unlet s:ver_len
 
-function! s:getext(i)
+
+function! s:get_ext(i)
    return substitute(s:zeroes.a:i,s:ver_subst,".\\1".&pm,"")
+endfunction
+
+function! s:get_version(base,i,dir)
+   if a:dir =~ "^$" || a:dir =~ "^\\\./$"
+      return fnamemodify(a:base,":p") . s:get_ext(a:i)
+   else
+      return a:dir . fnamemodify(a:base,":t") . s:get_ext(a:i)
+   endif
 endfunction
 
 
@@ -194,17 +229,19 @@ function! s:pre()
    endif
    " search for the first non-existent patchfile
    let l:base = expand("<afile>:p")
+   let l:dir = s:first_versdir(l:base)
    let l:i = 1
+   let s:patchnum = 1
    while l:i <= s:max_ver
-      let l:ext = s:getext(l:i)
-      if !filereadable(l:base . l:ext)
+      let s:patchnum = l:i
+      if !filereadable(s:get_version(l:base,l:i,l:dir))
          break
       endif
       let l:i = l:i + 1
    endwhile
    " set our new patchmode
    let s:patchmode = &patchmode
-   let &patchmode = l:ext
+   let &patchmode = s:get_ext(s:patchnum)
 endfunction
 
 
@@ -213,9 +250,32 @@ function! s:post()
    if !strlen(&patchmode) || !exists("s:patchmode")
       return
    endif
-   " undo our modifications to patchmode
+   let l:base = expand("<afile>:p")
+   let l:src = l:base . &patchmode
    let &patchmode = s:patchmode
-   unlet! s:patchmode
+   let l:dst = s:get_version(l:base,s:patchnum,s:first_versdir(l:base))
+   if l:src != l:dst
+      if filereadable(l:dst)
+         let l:tmp = l:dst . ".SaVeVeRs." . s:patchnum
+         if filereadable(l:tmp)
+            echohl ErrorMsg
+            echo ":VersDiff - Old temp file?  Something went wrong..."
+            echohl None
+         elseif rename(l:dst,l:tmp)
+            echohl ErrorMsg
+            echo ":VersDiff - Cant create temp file?  Something went wrong..."
+            echohl None
+         elseif !filereadable(l:src)
+            " Hmm, src no longer exists? Maybe src and dst are the same?
+            call rename(l:tmp,l:dst)
+         elseif !rename(l:src,l:dst)
+            call delete(l:tmp)
+         endif
+      else
+         call rename(l:src,l:dst)
+      endif
+   endif
+   unlet! s:patchmode s:patchnum
 endfunction
 
 
@@ -310,28 +370,81 @@ endfunction
 " then the "test.txt.0004.clean" file will not be deleted.
 function! s:purgef(N,base,verbose)
    let l:max_ver = ( s:max_ver < 9999 ) ? 9999 : s:max_ver
-   let l:i = 1
-   while l:i <= l:max_ver
-      let l:fname = a:base . s:getext(l:i)
-      if l:i <= a:N
-         if !filereadable(l:fname)
-            " break the loop if the file doesn't exist
+   let l:versdir = s:first_versdir(a:base)
+   while strlen(l:versdir)
+      let l:i = 1
+      while l:i <= l:max_ver
+         let l:fname = s:get_version(a:base,l:i,l:versdir)
+         if l:i <= a:N
+            if !filereadable(l:fname)
+               " break the loop if the file doesn't exist
+               break
+            else
+               let s:nremain = s:nremain + 1
+            endif
+         elseif delete(l:fname)
+            " break the loop if the deletion failed.
             break
          else
-            let s:nremain = s:nremain + 1
+            let s:npurged = s:npurged + 1
+            if a:verbose
+               echo "purged: " . l:fname
+            endif
          endif
-      elseif delete(l:fname)
-         " break the loop if the deletion failed.
-         break
-      else
-         let s:npurged = s:npurged + 1
-         if a:verbose
-            echo "purged: " . l:fname
-         endif
-      endif
-      let l:i = l:i + 1
+         let l:i = l:i + 1
+      endwhile
+      let l:versdir = s:next_versdir(a:base)
    endwhile
 endfunction
+
+function! s:first_versdir(base)
+   if exists("g:savevers_dirs") && strlen(g:savevers_dirs)
+      let s:verspath_iterator = g:savevers_dirs
+   else
+      let s:verspath_iterator = "."
+   endif
+   return s:next_versdir(a:base)
+endfunction
+
+function! s:next_versdir(base)
+   while strlen(s:verspath_iterator)
+      let l:comma = match(s:verspath_iterator,",")
+      if l:comma < 0
+         let l:dir = s:verspath_iterator
+         let s:verspath_iterator = ""
+      elseif l:comma == 0
+         let s:verspath_iterator = strpart(s:verspath_iterator,1)
+         continue
+      else
+         let l:dir = strpart(s:verspath_iterator,0,l:comma)
+         let s:verspath_iterator = strpart(s:verspath_iterator,l:comma+1)
+      endif
+
+      if match(l:dir,"\\\.") == 0
+         let l:dir = fnamemodify(fnamemodify(expand(a:base),":p:h")."/".l:dir,":p")
+      else
+         let l:dir = expand(l:dir)
+         if !strlen(l:dir)
+            continue
+         endif
+         let l:dir = fnamemodify(l:dir,":p")
+      endif
+      if !strlen(l:dir)
+         continue
+      endif
+      if match(l:dir,"/$") < 0
+         let l:dir = l:dir . "/"
+      endif
+      let l:dir = substitute(l:dir,"/\\\./","/","g")
+      if filewritable(l:dir) != 2
+         continue
+      endif
+      return l:dir
+   endwhile
+   unlet! s:verspath_iterator
+   return ""
+endfunction
+
 
 
 " define the ":VersDiff" command, but only if we can actually do a diff.
@@ -350,6 +463,9 @@ augroup END
 function! s:bufunload()
    if exists("s:versdiff_child") && s:versdiff_child == expand("<abuf>")
       call s:undo_versdiff()
+      if exists("*VersDiff_hook") && !exists("s:versdiff_child") && !exists("s:versdiff_creating")
+         call VersDiff_hook("close")
+      endif
    endif
 endfunction
 
@@ -361,17 +477,34 @@ function! s:versdiff(...)
    " parse the arguments
    let l:N = 0
    let l:argn = 1
+   let l:relative = 0
    while l:argn <= a:0
       exe "let l:arg = a:" . l:argn
       if match(l:arg,"-c$") == 0
          call s:close_versdiff()
          return
+      elseif match(l:arg,"-t$") == 0
+         if exists("s:versdiff_child") && bufexists(s:versdiff_child)
+            call s:close_versdiff()
+            return
+         endif
       elseif match(l:arg,"-[0-9]") == 0 && match(l:arg,"[^-0-9]") == -1
          let l:N = l:arg
       elseif match(l:arg,"[0-9]") == 0 && match(l:arg,"[^0-9]") == -1
          let l:N = l:arg
       elseif match(l:arg,"-cvs$") == 0
          let l:N = "cvs"
+      elseif match(l:arg,"[-+]$") == 0
+         let l:dir = match(l:arg,"-") ? 1 : -1
+         if exists("s:versdiff_N")
+                 \ && exists("s:versdiff_parent") && exists("s:versdiff_child")
+                 \ && ( s:versdiff_parent == bufnr("%")
+                         \ || s:versdiff_child == bufnr("%") )
+            let l:N = s:versdiff_N + l:dir
+         else
+            let l:N = ( l:dir + 1 ) / 2
+         endif
+         let l:relative = 1
       else
          echohl ErrorMsg
          echo ":VersDiff - invalid argument: " . l:arg
@@ -387,24 +520,27 @@ function! s:versdiff(...)
    endif
 
    let l:base = expand("%:p")
+   let l:dir = s:first_versdir(l:base)
    let l:curbuf = bufnr("%")
 
    " look for the appropriate file, and run the diff.
    if l:N == 0
-      call s:do_versdiff( l:curbuf, l:base, l:N )
+      call s:do_versdiff( l:curbuf, "", l:base, l:N, l:relative )
    elseif l:N > 0
-      call s:do_versdiff( l:curbuf, l:base . s:getext(l:N), l:N )
+      call s:do_versdiff( l:curbuf, l:dir, l:base, l:N, l:relative )
    else
       let l:nver = 1
       while l:nver <= s:max_ver
-         if !filereadable(l:base . s:getext(l:nver))
+         if !filereadable(s:get_version(l:base,l:nver,l:dir))
             break
          endif
          let l:nver = l:nver + 1
       endwhile
       let l:i = l:nver + l:N
       if l:i > 0
-         call s:do_versdiff( l:curbuf, l:base . s:getext(l:i), l:i)
+         call s:do_versdiff( l:curbuf, l:dir, l:base, l:i, l:relative)
+      elseif l:relative
+         call s:do_versdiff( l:curbuf, "", l:base, 0, l:relative )
       else
          echohl WarningMsg
          echo ":VersDiff - only " . (l:nver-1) . " versions available"
@@ -416,12 +552,31 @@ function! s:versdiff(...)
    endif
 endfunction
 
-function! s:do_versdiff(parentbuf,fname,N)
-   if !filereadable(a:fname)
-      echohl WarningMsg
-      echo ":VersDiff - cannot read file \"" . a:fname . "\""
-      echohl None
-      return
+function! s:do_versdiff(parentbuf,dir,base,N,relative)
+   if a:N 
+      let l:fname = s:get_version(a:base,a:N,a:dir)
+   else
+      let l:fname = a:base
+   endif
+   let l:N = a:N
+   if !filereadable(l:fname)
+      if a:relative
+         let l:fname = a:base
+         let l:N = 0
+      endif
+      if !filereadable(l:fname)
+         echohl WarningMsg
+         echo ":VersDiff - cannot read file \"" . l:fname . "\""
+         echohl None
+         return
+      endif
+   endif
+
+   if exists("*VersDiff_hook")
+      if !exists("s:versdiff_child")
+         call VersDiff_hook("open")
+      endif
+      call VersDiff_hook("change")
    endif
 
    " close any active versdiff
@@ -429,6 +584,7 @@ function! s:do_versdiff(parentbuf,fname,N)
    let l:parbufnr = bufnr("%")
    let l:parbufwinnr = bufwinnr("%")
    if exists("s:versdiff_child")
+      let s:versdiff_creating = 1
       if a:parentbuf == s:versdiff_parent && bufexists(s:versdiff_child)
          let l:reusewin = bufwinnr(s:versdiff_child)
       else
@@ -442,11 +598,18 @@ function! s:do_versdiff(parentbuf,fname,N)
             endif
          endif
       endif
-      unlet! s:versdiff_child
+      unlet! s:versdiff_child s:versdiff_creating
    endif
    let s:versdiff_parent = a:parentbuf
 
    let l:curline = line(".")
+
+   " turn off diff in all windows
+   let l:winnr = 1
+   while winbufnr(l:winnr) > 0
+      call setwinvar(l:winnr,"&diff", 0)
+      let l:winnr = l:winnr + 1
+   endwhile
 
    " save current settings.
    if l:reusewin <= 0
@@ -470,32 +633,48 @@ function! s:do_versdiff(parentbuf,fname,N)
    else
       vert new
    endif
-   if a:N == 0
+   if bufnr("%") == s:versdiff_parent
+      " Just to be safe, we make sure we're no longer in the parent window.
+      " (We don't want to end up losing its contents).
+      " This should never happen.
+      echohl ErrorMsg
+      echo ":VersDiff - Still in parent?  Something went wrong..."
+      echohl None
+      return
+   elseif l:N == 0
       enew
       setlocal modifiable
       setlocal noswapfile
       setlocal bufhidden=delete
       setlocal buftype=nofile
       let &l:ff = l:ff
-      if a:N =~ "^cvs$"
+      if l:N =~ "^cvs$"
          let l:autowrite = &autowrite
          set noautowrite
-         exe "silent read! cvs -Q update -p " . a:fname
+         exe "silent read! cvs -Q update -p " . l:fname
          let &autowrite = l:autowrite
          if v:shell_error
             %d
             let l:cvs_failed = 1
          endif
       else
+         let s:versdiff_N = l:N
          %d
          normal G
          call append(0,"--X--")
-         exe "0read " . a:fname
+         exe "0read " . l:fname
          normal ']+dG
       endif
    else
+      let s:versdiff_N = l:N
       setlocal buftype=
-      exec "edit! " . a:fname
+      if l:reusewin > 0
+         let l:delbuf = bufnr("%")
+         exec "silent edit! " . l:fname
+         silent! exec "silent! bd! " . l:delbuf
+      else
+         exec "silent edit! " . l:fname
+      endif
    endif
    setlocal nomodifiable
    diffthis
@@ -508,20 +687,27 @@ function! s:do_versdiff(parentbuf,fname,N)
    endif
 
    " set the window sizes
-   let l:wantcols = ( s:versdiff_width * 2 + 1 )
-   if exists("s:versdiff_cols") && l:wantcols > s:versdiff_cols
-      if has("gui_running") && !exists("g:versdiff_no_resize")
-         let &columns = l:wantcols
+   if l:reusewin <= 0
+      let l:wantcols = ( s:versdiff_width * 2 + 1 )
+      if exists("g:versdiff_max_cols") && l:wantcols > g:versdiff_max_cols
+         let l:wantcols = g:versdiff_max_cols
+      endif
+      if exists("s:versdiff_cols") && l:wantcols > s:versdiff_cols
+         if has("gui_running") && !exists("g:versdiff_no_resize")
+            let &columns = l:wantcols
+         else
+            unlet! s:versdiff_cols
+         endif
+         let l:actual_width = ( &columns - 1 ) / 2
+         exec l:actual_width . "wincmd |"
+         exec bufwinnr(s:versdiff_parent) . "wincmd w"
+         exec l:actual_width . "wincmd |"
       else
+         exec bufwinnr(s:versdiff_parent) . "wincmd w"
          unlet! s:versdiff_cols
       endif
-      let l:actual_width = ( &columns - 1 ) / 2
-      exec l:actual_width . "wincmd |"
-      exec bufwinnr(s:versdiff_parent) . "wincmd w"
-      exec l:actual_width . "wincmd |"
    else
       exec bufwinnr(s:versdiff_parent) . "wincmd w"
-      unlet! s:versdiff_cols
    endif
    let s:versdiff_child = l:diffbufnr
    exec l:curline
@@ -548,7 +734,6 @@ function! s:undo_versdiff()
    endif
 
    let l:curwin = winnr()
-   let l:curbuf = bufnr("%")
 
    if bufnr("%") != s:versdiff_parent
       exec bufwinnr(s:versdiff_parent) . "wincmd w"
@@ -575,7 +760,7 @@ function! s:undo_versdiff()
       unlet! s:versdiff_width
    endif
 
-   unlet! s:versdiff_child s:versdiff_parent
+   unlet! s:versdiff_child s:versdiff_parent s:versdiff_N
    exec l:curwin . "wincmd w"
 endfunction
 
