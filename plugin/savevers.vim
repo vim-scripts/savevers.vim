@@ -1,8 +1,8 @@
 " -*- vim -*-
-" @(#) $Id: savevers.vim,v 0.1 2001-09-20 13:05:40 EDT eralston exp $
+" @(#) $Id: savevers.vim,v 0.2 2001/09/25 08:52:45 eralston Exp $
 "
 " Vim global plugin for saving multiple 'patchmode' versions
-" Last Change: 2001-09-20 13:05:40
+" Last Change: 2001-09-25 08:52:45
 " Maintainer: Ed Ralston <eralston@techsan.org>
 "
 " created 2001-09-20 13:05:40 eralston@techsan.org
@@ -16,6 +16,8 @@
 "     {file}     is the filename of the file being saved
 "     {number}   is a number between 0001 and 9999
 "     {patchext} is the value of the 'patchmode' option.
+" 
+" Note that this plugin is DISABLED if 'patchmode' is empty.
 "
 " So, for example, if 'patchmode' is '.clean' and we save a
 " file named "test.txt" we'll have the following files:
@@ -36,6 +38,14 @@
 " but the patchmode files numbered N and below.  The [N] is
 " optional, and defaults to 1.  Use ":Purge 0" to delete all
 " of the patchmode files.
+"
+" -----------------------------------------------------------
+" $Log: savevers.vim,v $
+" Revision 0.2 2001/09/25 08:52:45  eralston
+" allow up to 9999 numbered versions
+"
+" Revision 0.1 2001/09/20 13:05:40  eralston
+" initial revision
 "
 
 if exists("loaded_savevers") || &cp
@@ -62,7 +72,7 @@ function! s:pre()
    " search for the first non-existent patchfile
    let l:base = expand("<afile>:p")
    let l:i = 1
-   while l:i < 10000
+   while l:i < 9999
       let l:ext = substitute("000".l:i,"^.*\\(\\d\\{4}\\)$",".\\1".&pm,"")
       if !filereadable(l:base . l:ext)
          break
@@ -113,7 +123,7 @@ function! s:purge(...)
    " delete the specified patchmode files
    let l:base = expand("%:p")
    let l:i = l:N + 1
-   while l:i < 10000
+   while l:i < 9999
       let l:ext = substitute("000".l:i,"^.*\\(\\d\\{4}\\)$",".\\1".&pm,"")
       if delete(l:base . l:ext)
          " short-circuit the loop if the deletion failed.
