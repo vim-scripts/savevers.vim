@@ -1,8 +1,8 @@
 " -*- vim -*-
-" @(#) $Id: savevers.vim,v 0.5 2001/10/01 09:50:22 eralston Exp $
+" @(#) $Id: savevers.vim,v 0.5 2001/10/01 11:05:12 eralston Exp $
 "
 " Vim global plugin for saving multiple 'patchmode' versions
-" Last Change: 2001/10/01 09:50:22
+" Last Change: 2001/10/01 11:05:12
 " Maintainer: Ed Ralston <eralston@techsan.org>
 "
 " created 2001-09-20 13:05:40 eralston@techsan.org
@@ -113,6 +113,9 @@
 " -----------------------------------------------------------
 "
 " $Log: savevers.vim,v $
+" Revision 0.6 2001/10/01 11:05:12  eralston
+" ":VersDiff" command improvements
+"
 " Revision 0.5 2001/10/01 09:50:22  eralston
 " Added ":VersDiff" command
 "
@@ -426,7 +429,7 @@ function! s:do_versdiff(parentbuf,fname,N)
    let l:parbufnr = bufnr("%")
    let l:parbufwinnr = bufwinnr("%")
    if exists("s:versdiff_child")
-      if a:parentbuf == s:versdiff_parent
+      if a:parentbuf == s:versdiff_parent && bufexists(s:versdiff_child)
          let l:reusewin = bufwinnr(s:versdiff_child)
       else
          call s:close_versdiff()
@@ -514,10 +517,10 @@ function! s:do_versdiff(parentbuf,fname,N)
       endif
       let l:actual_width = ( &columns - 1 ) / 2
       exec l:actual_width . "wincmd |"
-      exec s:versdiff_parent . "wincmd w"
+      exec bufwinnr(s:versdiff_parent) . "wincmd w"
       exec l:actual_width . "wincmd |"
    else
-      exec s:versdiff_parent . "wincmd w"
+      exec bufwinnr(s:versdiff_parent) . "wincmd w"
       unlet! s:versdiff_cols
    endif
    let s:versdiff_child = l:diffbufnr
