@@ -1,0 +1,103 @@
+This is a mirror of http://www.vim.org/scripts/script.php?script_id=89
+
+Automatically saves and compares multiple, sequentially numbered
+old revisions of files (like in VMS)
+
+If the 'patchmode' option is non-empty, then whenever a file
+is saved, a version of the previously saved version is kept,
+but renamed to {file}.{number}.{patchext}, where:
+    {file}     is the filename of the file being saved
+    {number}   is a number between 0001 and 9999
+    {patchext} is the value of the 'patchmode' option.
+
+Optionally, the saved versions can be placed in a subdirectory.
+
+Note that this plugin is DISABLED if 'patchmode' is empty.
+Also, this plugin won't work if 'backupdir' is empty or if
+'backup' is unset, so to get started, put the following in
+your ".vimrc"
+
+    set backup
+    set patchmode=.clean
+
+So, for example, if 'patchmode' is '.clean' and we save a
+file named "test.txt" we'll have the following files:
+
+-rw-r----- 1 eralston admin  106 Sep 20 11:14 test.txt
+-rw-r----- 1 eralston admin  102 Sep 20 11:12 test.txt.0001.clean
+
+If we make subsequent changes to "test.txt" and save it a
+few more times, we'll end up with something like:
+
+-rw-r----- 1 eralston admin  226 Sep 20 11:43 test.txt
+-rw-r----- 1 eralston admin  102 Sep 20 11:12 test.txt.0001.clean
+-rw-r----- 1 eralston admin  106 Sep 20 11:14 test.txt.0002.clean
+-rw-r----- 1 eralston admin  132 Sep 20 11:22 test.txt.0003.clean
+-rw-r----- 1 eralston admin  148 Sep 20 11:34 test.txt.0004.clean
+
+COMMANDS:
+   :Purge [-a] [-v] [N]
+      Removes all but the patchmode files numbered N and below.
+      The [N] is optional, and defaults to 1.
+      Normally, this operates only on the patchmode files associated
+      with the current buffer, but if the [-a] flag is given, then
+      it operates on all patchmode files in the directory of the
+      current file.
+      If the optional [-v] (verbose) flag is given, then the filename
+      of each deleted patchmode file is printed.
+
+      Use ":Purge 0" to delete all of the patchmode files for the
+      current file.
+
+      Use ":Purge -a 0" to delete all of the patchmode files in
+      the directory of the current file.
+
+   :VersDiff [arg]
+      Does a "diffsplit" on the current file with the version
+      indicated by [arg].  So, for example, if the current
+      file is "test.txt" then the ":VersDiff 5" command will
+      do a "diffsplit" with "test.txt.0005.clean", assuming
+      &patchmode is ".clean"
+
+      If [arg] is zero (the default), then the diff is done with
+      the current saved version of the file.
+
+      If [arg] is negative, then the diff is done with the
+      [arg]th oldest file; e.g., if [arg] is "-5" and there are
+      versions 0001-0023 saved on disk, then the version that
+      is diffed will be (23-5+1)=19, i.e, "test.txt.0019" will
+      be diffed.
+
+      If [arg] is "-cvs", then the diff is done with the most recently
+      checked-in version of the file.
+
+      If [arg] is "-", then the current VersDiff window is decremented.
+      If [arg] is "+", then the current VersDiff window is incremented.
+          (Note that if VersDiff is currently doing a cvs diff, then
+          the cvs revision is incremented/decremented)
+
+      If [arg] is "-c", then any current VersDiff window is closed.
+
+HINTS:
+   If you use GNU 'ls', then try adding "-I'*.clean'" (without the
+   double quotes) to your 'ls' alias (assuming &patchmode==.clean)
+
+   It's also helpful to have the patchmode value in the backupskip,
+   suffixes, and wildignore vim options:
+
+      :exe "set backupskip+=*" . &patchmode
+      :exe "set suffixes+=" . &patchmode
+      :exe "set wildignore+=*" . &patchmode
+
+   Also, here are some nice mappings that allow quick comparison
+   of the current file with previous versions.  Pressing <F5>
+   successively shows the diff with older versions.
+
+      " <F5> decrease version viewed in VersDiff window
+      " <F6> increase version viewed in VersDiff window
+      " <F7> do VersDiff with cvs version of current file
+      " <F8> cancel VersDiff window
+      nmap <silent> <F5> :VersDiff -<cr>
+      nmap <silent> <F6> :VersDiff +<cr>
+      nmap <silent> <F7> :VersDiff -cvs<cr>
+      nmap <silent> <F8> :VersDiff -c<cr>
