@@ -1,10 +1,9 @@
 " -*- vim -*-
-" @(#) $Id: savevers.vim,v 0.7 2001/10/02 13:55:22 eralston Exp $
+" @(#) $Id: savevers.vim,v 0.8 2001/10/10 15:29:11 eralston Exp $
 "
 " Vim global plugin for saving multiple 'patchmode' versions
-" Last Change: 2001/10/02 13:55:22
+" Last Change: 2001/10/10 15:29:11
 " Maintainer: Ed Ralston <eralston@techsan.org>
-"
 "
 " created 2001-09-20 13:05:40 eralston@techsan.org
 "
@@ -23,7 +22,12 @@
 "        {patchext} is the value of the 'patchmode' option.
 "    
 "    Note that this plugin is DISABLED if 'patchmode' is empty.
-"    Also, this plugin won't work if 'backupdir' is empty.
+"    Also, this plugin won't work if 'backupdir' is empty or if
+"    'backup' is unset, so to get started, put the following in
+"    your ".vimrc" (NOT .gvimrc)
+"
+"        set backup
+"        set patchmode=.clean
 "    
 "    So, for example, if 'patchmode' is '.clean' and we save a
 "    file named "test.txt" we'll have the following files:
@@ -73,11 +77,14 @@
 "       is diffed will be (23-5+1)=19, i.e, "test.txt.0019" will
 "       be diffed.
 "
-"       If [arg] is "-", then the current VersDiff window is decremented.
-"       If [arg] is "+", then the current VersDiff window is incremented.
-"
 "       If [arg] is "-cvs", then the diff is done with the most recently
 "       checked-in version of the file.
+"
+"       If [arg] is "-", then the current VersDiff window is decremented.
+"       If [arg] is "+", then the current VersDiff window is incremented.
+"           (Note that if VersDiff is currently doing a cvs diff, then
+"           the cvs revision is incremented/decremented)
+"
 "
 "       If [arg] is "-c", then any current VersDiff window is closed.
 "
@@ -86,8 +93,11 @@
 "       the indicated VersDiff window is created.
 "
 " CONFIGURATION:
+"    First make sure that the "backup" option is set, and the
+"    "patchmode" option is non-empty.
+"
 "    This plugin can be configured by setting the following
-"    variables in ".vimrc"
+"    variables in ".vimrc" (NOT .gvimrc)
 "
 "    savevers_types     - This is a comma-separated list of filename
 "                         patterns.  Sets the types of files that
@@ -133,9 +143,26 @@
 "       :exe "set suffixes+=" . &patchmode
 "       :exe "set wildignore+=*" . &patchmode
 "
+"    Also, here are some nice mappings that allow quick comparison
+"    of the current file with previous versions.  Pressing <F5>
+"    successively shows the diff with older versions.
+"
+"       " <F5> decrease version viewed in VersDiff window
+"       " <F6> increase version viewed in VersDiff window
+"       " <F7> do VersDiff with cvs version of current file
+"       " <F8> cancel VersDiff window
+"       nmap <silent> <F5> :VersDiff -<cr>
+"       nmap <silent> <F6> :VersDiff +<cr>
+"       nmap <silent> <F7> :VersDiff -cvs<cr>
+"       nmap <silent> <F8> :VersDiff -c<cr>
+"
 " -----------------------------------------------------------
 "
 " $Log: savevers.vim,v $
+" Revision 0.8 2001/10/10 15:29:11  eralston
+" Corrected some obscure documentation.
+" Allow cvs revisions to be incremented/decremented.
+"
 " Revision 0.7 2001/10/02 13:55:22  eralston
 " Added 'savevers_dirs' option to specify directory for patchmode files
 "
@@ -259,11 +286,11 @@ function! s:post()
          let l:tmp = l:dst . ".SaVeVeRs." . s:patchnum
          if filereadable(l:tmp)
             echohl ErrorMsg
-            echo ":VersDiff - Old temp file?  Something went wrong..."
+            echo ":savevers.vim - Old temp file?  Something went wrong..."
             echohl None
          elseif rename(l:dst,l:tmp)
             echohl ErrorMsg
-            echo ":VersDiff - Cant create temp file?  Something went wrong..."
+            echo ":savevers.vim - Can't create temp file?  Something went wrong..."
             echohl None
          elseif !filereadable(l:src)
             " Hmm, src no longer exists? Maybe src and dst are the same?
@@ -482,10 +509,12 @@ function! s:versdiff(...)
       exe "let l:arg = a:" . l:argn
       if match(l:arg,"-c$") == 0
          call s:close_versdiff()
+         let s:cvs_parent = -1
          return
       elseif match(l:arg,"-t$") == 0
          if exists("s:versdiff_child") && bufexists(s:versdiff_child)
             call s:close_versdiff()
+            let s:cvs_parent = -1
             return
          endif
       elseif match(l:arg,"-[0-9]") == 0 && match(l:arg,"[^-0-9]") == -1
@@ -496,13 +525,24 @@ function! s:versdiff(...)
          let l:N = "cvs"
       elseif match(l:arg,"[-+]$") == 0
          let l:dir = match(l:arg,"-") ? 1 : -1
-         if exists("s:versdiff_N")
+         if exists("s:cvs_parent")
                  \ && exists("s:versdiff_parent") && exists("s:versdiff_child")
                  \ && ( s:versdiff_parent == bufnr("%")
                          \ || s:versdiff_child == bufnr("%") )
-            let l:N = s:versdiff_N + l:dir
+                 \ && s:versdiff_parent == s:cvs_parent
+            let l:N = "cvs" . l:arg
          else
-            let l:N = ( l:dir + 1 ) / 2
+            if exists("s:versdiff_N")
+                     \ && exists("s:versdiff_parent") && exists("s:versdiff_child")
+                     \ && ( s:versdiff_parent == bufnr("%")
+                     \ || s:versdiff_child == bufnr("%") )
+               let l:N = s:versdiff_N + l:dir
+            else
+               let l:N = ( l:dir + 1 ) / 2
+            endif
+            if !l:N && !&modified
+               let l:N = l:dir
+            endif
          endif
          let l:relative = 1
       else
@@ -624,6 +664,15 @@ function! s:do_versdiff(parentbuf,dir,base,N,relative)
       let l:syntax = &l:syntax
    endif
    let l:ff = &l:ff
+   
+   " clean up old cvs stuff
+   if exists("s:cvs_parent")
+          \ && ( ( s:cvs_parent != s:versdiff_parent ) || match(l:N, "^cvs") )
+      if exists("s:cvs_versbuf") && s:cvs_versbuf != s:versdiff_parent
+         exe "silent! bw! " . s:cvs_versbuf
+      endif
+      unlet! s:cvs_parent s:cvs_versbuf s:cvs_versline
+   endif
 
    " do diffsplit
    diffthis
@@ -648,10 +697,51 @@ function! s:do_versdiff(parentbuf,dir,base,N,relative)
       setlocal bufhidden=delete
       setlocal buftype=nofile
       let &l:ff = l:ff
-      if l:N =~ "^cvs$"
+      if match(l:N, "^cvs") == 0
+         let s:cvs_parent = s:versdiff_parent
          let l:autowrite = &autowrite
          set noautowrite
-         exe "silent read! cvs -Q update -p " . l:fname
+         let l:cvs_rev = ""
+         if match(l:N, "[+-]") > 0
+            let l:diffbufnr = bufnr("%")
+            if !exists("s:cvs_versbuf") || !bufexists(s:cvs_versbuf)
+               let s:cvs_versline = 1
+               new
+               setlocal modifiable
+               setlocal noswapfile
+               setlocal bufhidden=hide
+               setlocal buftype=nofile
+               exe "silent read! cvs -Q log -b -N " . l:fname
+               if v:shell_error
+                  bw!
+               else
+                  v/^revision\>\s\+\d\+\.\?\d\+/d
+                  %s/^revision\s\+\(\d\)/-r \1/
+                  let s:cvs_versbuf = bufnr("%")
+                  hide
+               endif
+            endif
+            if exists("s:cvs_versbuf") && bufexists(s:cvs_versbuf)
+               exe "sb " . s:cvs_versbuf
+               if match(l:N, "+") > 0 && s:cvs_versline > 1
+                  let s:cvs_versline = s:cvs_versline - 1
+               elseif match(l:N, "-") > 0 && s:cvs_versline < line("$")
+                  let s:cvs_versline = s:cvs_versline + 1
+               endif
+               let l:cvs_rev = getline(s:cvs_versline)
+               hide
+            endif
+            if l:diffbufnr != bufnr("%")
+               exe bufwinnr(l:diffbufnr) . "wincmd w"
+            endif
+         else
+            let s:cvs_versline = 1
+         endif
+         %d
+         normal G
+         call append(0,"--X--")
+         exe "silent 0read! cvs -Q update -p " . l:cvs_rev . " " . l:fname
+         normal ']+dG
          let &autowrite = l:autowrite
          if v:shell_error
             %d
@@ -711,7 +801,6 @@ function! s:do_versdiff(parentbuf,dir,base,N,relative)
    endif
    let s:versdiff_child = l:diffbufnr
    exec l:curline
-   normal zM
 
    if exists("l:cvs_failed")
       echohl WarningMsg
